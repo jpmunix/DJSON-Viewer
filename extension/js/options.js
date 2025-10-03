@@ -26,54 +26,59 @@
 
     "use strict";
 
-    // theme
     var supportedThemes = ["default", "monokai", "xcode", "solarized", "darkorange", "halewa"];
-    var theme = localStorage.getItem("theme");
-    var themeChooserSelect = document.getElementById("themeChooserSelectContainer");
-    themeChooserSelect= themeChooserSelect.firstElementChild;
-    supportedThemes.forEach(function (themeName) {
-        var option = document.createElement('option');
-        option.value = themeName;
-        option.innerText = themeName;
-        if(theme && theme === themeName){
-            option.selected = 'selected';
-            document.getElementById("themeChooserPreview").setAttribute('data-theme', themeName);
-        }
-        themeChooserSelect.appendChild(option);
-    });
+    var themeChooserSelectContainer = document.getElementById("themeChooserSelectContainer");
+    var themeChooserSelect = themeChooserSelectContainer.firstElementChild;
+    var themeChooserPreview = document.getElementById("themeChooserPreview");
 
-    themeChooserSelect.addEventListener('change', function () {
-        var selectedTheme = this.options[this.selectedIndex].value;
-        themeChooserPreview.setAttribute('data-theme', selectedTheme);
-        localStorage.setItem("theme", selectedTheme);
-    });
-
-    function optionInit(checkBoxId) {
-        var checkbox = document.getElementById(checkBoxId);
-        var localStoreItemName = checkBoxId.replace("Checkbox", "");
-        var localStorageItem = localStorage.getItem(localStoreItemName);
-        if(localStorageItem && localStorageItem === "true"){
-            checkbox.checked = true;
-        }
-        checkbox.addEventListener('click', function () {
-            if(checkbox.checked) {
-                localStorage.setItem(localStoreItemName, true);
-            } else {
-                localStorage.removeItem(localStoreItemName)
-            }
-        });
+    function setTheme(themeName) {
+        themeChooserPreview.setAttribute('data-theme', themeName);
+        chrome.storage.local.set({theme: themeName});
     }
 
-    // start JSON collapsed
-    optionInit("startCollapsedCheckbox");
+    function handleCheckboxChange(key, checkbox) {
+        var update = {};
+        update[key] = checkbox.checked;
+        chrome.storage.local.set(update);
+    }
 
-    // start JSON collapsed if big json
-    optionInit("startCollapsedIfBigCheckbox");
+    chrome.storage.local.get({
+        theme: null,
+        startCollapsed: false,
+        startCollapsedIfBig: false,
+        showAlwaysCount: false,
+        hideLineNumbers: false
+    }, function (items) {
+        supportedThemes.forEach(function (themeName) {
+            var option = document.createElement('option');
+            option.value = themeName;
+            option.innerText = themeName;
+            if(items.theme && items.theme === themeName){
+                option.selected = 'selected';
+                themeChooserPreview.setAttribute('data-theme', themeName);
+            }
+            themeChooserSelect.appendChild(option);
+        });
 
-    // show always count of children
-    optionInit("showAlwaysCountCheckbox");
+        themeChooserSelect.addEventListener('change', function () {
+            var selectedTheme = this.options[this.selectedIndex].value;
+            setTheme(selectedTheme);
+        });
 
-    // hide line numbers
-    optionInit("hideLineNumbersCheckbox");
+        function optionInit(checkBoxId, storageKey) {
+            var checkbox = document.getElementById(checkBoxId);
+            if(items[storageKey]){
+                checkbox.checked = true;
+            }
+            checkbox.addEventListener('click', function () {
+                handleCheckboxChange(storageKey, checkbox);
+            });
+        }
+
+        optionInit("startCollapsedCheckbox", "startCollapsed");
+        optionInit("startCollapsedIfBigCheckbox", "startCollapsedIfBig");
+        optionInit("showAlwaysCountCheckbox", "showAlwaysCount");
+        optionInit("hideLineNumbersCheckbox", "hideLineNumbers");
+    });
 
 })();
