@@ -35,30 +35,51 @@
         ;
 
     chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-        chrome.tabs.getCurrent(function (tab) {
-            if(tab.url == chrome.extension.getURL('json.html')){
-                while (document.body.firstChild) {
-                    document.body.removeChild(document.body.firstChild);
-                }
-                var pre = document.createElement('pre');
-                pre.id = 'emptyPre';
-                pre.innerText = request.json;
-                document.body.appendChild(pre);
-                ready();
+        if (request && request.type === 'LOAD_JSON' && window.location.href === chrome.runtime.getURL('json.html')) {
+            while (document.body.firstChild) {
+                document.body.removeChild(document.body.firstChild);
             }
-        });
+            var pre = document.createElement('pre');
+            pre.id = 'emptyPre';
+            pre.innerText = request.json;
+            document.body.appendChild(pre);
+            ready();
+        }
+        else if (request && request.type === 'COPY_TO_CLIPBOARD' && request.text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(request.text).catch(function () {
+                    fallbackCopy(request.text);
+                });
+            } else {
+                fallbackCopy(request.text);
+            }
+        }
     });
+
+    function fallbackCopy(text) {
+        var temp = document.createElement('textarea');
+        temp.value = text;
+        temp.setAttribute('readonly', '');
+        temp.style.position = 'absolute';
+        temp.style.left = '-9999px';
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+    }
 
     function connectToPort(){
         // Open the port "djson" now, ready for when we need it
         // console.time('established port') ;
-        port = chrome.extension.connect({name: 'djson'});
+        port = chrome.runtime.connect({name: 'djson'});
 
         // Add listener to receive response from BG when ready
         port.onMessage.addListener(function (msg) {
-            // console.log('Port msg received', msg[0], (""+msg[1]).substring(0,30)) ;
+            if (!msg || !msg.type) {
+                return;
+            }
 
-            switch (msg[0]) {
+            switch (msg.type) {
                 case 'NOT JSON' :
                     pre.hidden = false;
                     document.body.removeChild(djsonContent);
@@ -81,10 +102,16 @@
                         );
                     }
 
-                    var localStorageOptions = JSON.parse(msg[1]);
+                    var localStorageOptions = msg.options || {};
                     var theme = localStorageOptions && localStorageOptions.hasOwnProperty('theme') ? localStorageOptions.theme : null;
                     if (theme) {
                         document.body.setAttribute("data-theme", theme);
+                        djsonStyleEl.insertAdjacentHTML(
+                            'beforeend',
+                            '\n@import url("' + chrome.runtime.getURL('css/themes/' + theme + '.css') + '");'
+                        );
+                    } else {
+                        document.body.removeAttribute("data-theme");
                     }
 
                     djsonContent.innerHTML = '<p id="formattingMsg"><span class="loader"></span> Formatting...</p>';
@@ -246,20 +273,26 @@
 
                 case 'FORMATTED' :
 
-                    var localStorageOptions = JSON.parse(msg[3]);
+                    var localStorageOptions = msg.options || {};
+                    var formatterOptions = {
+                        startCollapsed: localStorageOptions.startCollapsed === true || localStorageOptions.startCollapsed === 'true',
+                        startCollapsedIfBig: localStorageOptions.startCollapsedIfBig === true || localStorageOptions.startCollapsedIfBig === 'true',
+                        hideLineNumbers: localStorageOptions.hideLineNumbers === true || localStorageOptions.hideLineNumbers === 'true',
+                        textLength: msg.json ? msg.json.length : 0
+                    };
 
-                    // Insert CSS numOfChildren elements
-                    var numOfChildren = JSON.parse(msg[4]);
+                    var formattedResult = DJSONFormatter.format(msg.jsonObject, msg.jsonpFunctionName, formatterOptions);
+
+                    var numOfChildren = formattedResult.numChildClasses || [];
                     for(var z=0; z<numOfChildren.length; z++){
                         var count = numOfChildren[z];
                         var comment = count + (count === 1 ? ' item' : ' items');
-                        // Add CSS that targets it
                         djsonStyleEl.insertAdjacentHTML(
                             'beforeend',
                             '\n.numChild' + count + '.collapsed:after{color: #aaa; content:" // ' + comment + '"}'
                         );
 
-                        if(localStorageOptions.hasOwnProperty("showAlwaysCount")) {
+                        if(localStorageOptions.hasOwnProperty("showAlwaysCount") && (localStorageOptions.showAlwaysCount === true || localStorageOptions.showAlwaysCount === 'true')) {
                             djsonStyleEl.insertAdjacentHTML(
                                 'beforeend',
                                 '\n.numChild' + count + ':not(.collapsed)>.b:not(.lastB):after{color: #aaa; font-weight: normal; content:" // ' + comment + '"}'
@@ -267,16 +300,12 @@
                         }
                     }
 
-                    // Insert HTML content
-                    djsonContent.innerHTML = msg[1];
+                    djsonContent.innerHTML = formattedResult.html;
 
                     djsonContent.removeEventListener('mouseover', onMouseMove, false);
                     djsonContent.addEventListener('mouseover', onMouseMove, false);
                     document.body.removeEventListener('contextmenu', onContextMenu, false);
                     document.body.addEventListener('contextmenu', onContextMenu, false);
-
-                    // bind nested json open actions
-                    //{"dario":"{\"test\":{\"test1\":{\"test1\":[{\"test2\":\"1\",\"test3\": \"foo\",\"test4\":\"bar\",\"test5\":\"test7\"}]}}}"}
 
                     var nested = document.getElementsByClassName('nested');
                     for (var i = 0; i < nested.length; i++) {
@@ -285,17 +314,16 @@
                         }, false);
                     }
 
-                    // Export parsed JSON for easy access in console
                     setTimeout(function () {
                         try{
                             if(document.location.protocol === "chrome-extension:") {
-                                window.djson = JSON.parse(msg[2]);
+                                window.djson = msg.jsonObject;
                                 djson = window.djson;
                             } else {
                                 var script = document.createElement("script") ;
-                                script.innerHTML = 'window.djson = ' + msg[2] + ';' ;
+                                script.innerHTML = 'window.djson = ' + msg.json + ';' ;
                                 document.head.appendChild(script) ;
-                                djson = JSON.parse(msg[2]);
+                                djson = JSON.parse(msg.json);
                             }
                             console.log('DJSON Viewer: Type "djson" to inspect.') ;
                         } catch (ex) {}
@@ -304,7 +332,7 @@
                     break;
 
                 default :
-                    throw new Error('Message not understood: ' + msg[0]);
+                    throw new Error('Message not understood: ' + msg.type);
             }
         });
 

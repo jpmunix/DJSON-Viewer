@@ -57,7 +57,7 @@
 
         // Open separate window (pop-out)
         $("#button-popout").click(function () {
-            if (typeof chrome.extension !== "undefined") {
+            if (typeof chrome.runtime !== "undefined") {
                 chrome.tabs.create({
                     url: 'popup.html'
                 });
@@ -115,7 +115,7 @@
             if (jsonInput.length > 0) {
                 try {
                     JSON.parse(jsonInput);
-                    var port = chrome.extension.connect({name: 'djson'});
+                    var port = chrome.runtime.connect({name: 'djson'});
                     port.postMessage({type: "OPEN JSON TAB", json: jsonInput});
                 } catch (exc) {
                     document.getElementById('infoArea').innerHTML = exc + '';
